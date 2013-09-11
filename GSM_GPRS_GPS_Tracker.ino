@@ -28,16 +28,18 @@ int count=0;                       // counter for buffer array
 #define  YELLOWLed    10
 #define  LM35Pin      A3
 
-#define MobilePhoneNumber "+30XXXXXXXXXX"
-
+#define MobilePhoneNumber "MY_PHONE_NUMBER"
 
 #define GPSOn true
 #define GPSDebug false
 #define Debug false
+#define ShowMessages true
 
 #ifdef SHOWMEMORY
   long MemoryMillis;
 #endif
+
+String msg = String("");
 
 
 void setup()  
@@ -47,7 +49,7 @@ void setup()
   pinMode(YELLOWLed, OUTPUT);
   pinMode(SoftPowerPin, OUTPUT);
   pinMode(ButtonPin, INPUT);
-  if (Debug)  
+  if ((ShowMessages) || (Debug))
     Serial.begin(19200);
   digitalWrite(REDLed, HIGH);
   delay(200);
@@ -66,7 +68,7 @@ void setup()
   digitalWrite(REDLed, LOW);
   digitalWrite(GREENLed, LOW);
   digitalWrite(YELLOWLed, LOW);
-  if (Debug)  
+  if ((ShowMessages) || (Debug))
   {
     Serial.println("+-------------------+");
     Serial.println("| GPS GPRS Tracking |");
@@ -76,7 +78,6 @@ void setup()
   }
   Serial1.begin(19200);
   PowerUp();
-
   if (GPSOn)
   {
     gpsserial.begin(9600);
@@ -97,59 +98,23 @@ void loop() // run over and over
 #ifdef SHOWMEMORY
     if ((millis()-MemoryMillis)>1000)
     {
-      if (Debug)
-      {
-        Serial.print("Free memory: ");
-        Serial.print(freeMemory());
-        Serial.println(" bytes");
-      }
+      Serial.print("Free memory: ");
+      Serial.print(freeMemory());
+      Serial.println(" bytes");
       MemoryMillis=millis();
     }
 #endif
-  if ((millis()-UpdateMillis>60000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     // Update every 1 minute via GPRS (when valid gps lon/lat)
+  if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     // Update every 1 minute via GPRS (when valid gps lon/lat)
   {
+    msg=String("");
     UpdateOverGPRS();
     UpdateMillis=millis();
   }
-  
-  
   if (digitalRead(ButtonPin)==HIGH)      // on button press, send sms
   {
-    Serial1.println("AT+CMGF=1");
-    delay(1000);
-    Serial1.println("AT+CSMP=17,167,0,241");
-    delay(1000);
-    Serial1.print("AT+CMGS=\"");
-    Serial1.print(MobilePhoneNumber);
-    Serial1.println("\"\r");
-    delay(1000);
-    Serial1.print("Lon: ");
-    Serial1.print(currentLon,7);
-    Serial1.print("\r\n");
-    Serial1.print("Lat: ");
-    Serial1.print(currentLat,7);
-    Serial1.print("\r\n");
-    Serial1.print("Speed: ");
-    Serial1.print(currentSpeed);
-    Serial1.print("km/h\r\n");
-    Serial1.print("Course: ");
-    Serial1.print(currentCourse);
-    Serial1.print("\r\n");
-    Serial1.print("Altitude: ");
-    Serial1.print(currentAlt);
-    Serial1.print("m\r\n");
-    Serial1.print("Satellites: ");
-    Serial1.print(currentSats);
-    Serial1.print("\r\n");
-    Serial1.print("Temp: ");
-    Serial1.print(currentTemp,1);
-    Serial1.print("C\r\n");
-    Serial1.println();
-    Serial1.write(0x1A);  //Equivalent to sending Ctrl+Z 
-    if (Debug)  
-      ShowSerialData();
+    msg=String("");
+    SendSMSMessage();
   }
-
   if (GPSOn)
   {
     bool newdata = false;
@@ -161,15 +126,12 @@ void loop() // run over and over
     }
     StartMillis=millis();
   }
-  
+ ShowSerialData();
  if (Debug)  
  {
-   ShowSerialData();
    if (Serial.available())            // if data is available on hardwareserial port ==> data is comming from PC or notebook
      Serial1.write(Serial.read());       // write it to the Serial1 shield
  }
-
-
   GetTemperature();
   // clean temperature readings   
   if (Times>1000)
@@ -177,18 +139,10 @@ void loop() // run over and over
     Times=0;
     SumTemp=0.0;
   }
-
 }
 
 
 
-void clearBufferArray()              // function to clear buffer array
-{
-  for (int i=0; i<count; i++)
-  { 
-    buffer[i]=NULL;
-  }
-}
 
 void PowerUp()                      // Software power-up GSM shield
 {
@@ -202,19 +156,30 @@ void PowerUp()                      // Software power-up GSM shield
 
 
 
-/*
+
 void AnswerCall()
 {
+  msg=String("");  
   Serial1.println("ATA");
+  delay(500);
+  ShowSerialData();
+  msg=String("");  
 }
+
+
+
+
 
 void HangUpCall()
 {
+  msg=String("");
   Serial1.println("+++");
-  delay(50);
+  delay(500);
   Serial1.println("ATH");
+  delay(100);
+  ShowSerialData();
+  msg=String("");
 }
-*/
 
 
 
@@ -237,14 +202,11 @@ static void gpsdump(TinyGPS &gps)
     digitalWrite(GREENLed, LOW);
     return;
   }
-  
   float flat, flon;
   unsigned long age;
   int year;
   byte month, day, hour, minute, second, hundredths;
-
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
-    
   // DST Correction ---
   // last sunday of march
   int beginDSTDate=  (31 - (5* year /4 + 4) % 7);
@@ -257,9 +219,7 @@ static void gpsdump(TinyGPS &gps)
     hour=hour+3;  // DST europe = utc +2 hour
   else
     hour=hour+2; // nonDST europe = utc +1 hour
-  
   sprintf(currentTime,"%02d/%02d/%02d %02d:%02d:%02d", day, month, year, hour, minute, second);
-
   currentSats=Sats;
   gps.f_get_position(&flat, &flon, &age);
   currentLat=flat;
@@ -267,7 +227,6 @@ static void gpsdump(TinyGPS &gps)
   currentAlt=gps.f_altitude();
   currentSpeed=gps.f_speed_kmph();
   currentCourse=gps.f_course();
-  
   if (GPSDebug)
   {
     Serial.print("[GPS] Lat: ");
@@ -314,58 +273,52 @@ void GetTemperature()
 
 void UpdateOverGPRS()
 {
+  msg=String("");
   if ((previousLat==currentLat) && (previousLon==currentLon))
     return;
   digitalWrite(REDLed, HIGH);
   digitalWrite(GREENLed, HIGH);
   digitalWrite(YELLOWLed, HIGH); 
-  if (Debug)  
-    Serial.println("--- STARTING GPRS UPDATE"); 
-  Serial1.println("AT+CSTT=\"APN_NAME\",\"USERNAME\",\"PASSWORD\"");//setting the APN
+  if ((ShowMessages) || (Debug))
+    Serial.println("--- Starting GPRS update..."); 
+  Serial1.println("AT+CGATT?");
+  delay(1000);
+  ShowSerialData();
+  Serial1.println("AT+CSTT=\"internet.vodafone.gr\",\"\",\"\"");//setting the APN, the second need you fill in your local apn server
   Serial1.write(0x1A);
   delay(2000); 
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIPSRIP=1");
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   delay(2000);
   Serial1.println("AT+CIICR");  
   delay(2000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIFSR");
   Serial1.write(0x1A);
   delay(2000); 
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CDNSCFG?");
   delay(2000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIPHEAD=1");
   delay(2000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIPSTATUS");
   Serial1.write(0x1A);
   delay(2000);
-  if (Debug)  
-    ShowSerialData();
-  Serial1.println("AT+CIPSTART=\"TCP\",\"YOUR_SERVER_IP_GOES_HERE\",\"80\"");
+  ShowSerialData();
+  Serial1.println("AT+CIPSTART=\"TCP\",\"magla.ath.cx\",\"80\"");
   Serial1.write(0x1A);
   delay(3000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIPSTATUS");
   Serial1.write(0x1A);
   delay(2000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIPSEND");
   delay(5000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.print("GET /track.php?lat=");
   Serial1.print(currentLat,7);
   Serial1.print("&lon=");
@@ -381,25 +334,69 @@ void UpdateOverGPRS()
   Serial1.print("&alt=");
   Serial1.print(currentAlt);
   Serial1.print("&temp=");
-  Serial1.print(currentTemp);
+  Serial1.print(currentTemp,1);
   Serial1.print(" HTTP/1.1");
   Serial1.println("");
   Serial1.println("");
   Serial1.write(0x1A);
   delay(5000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   Serial1.println("AT+CIPSHUT");
   delay(1000);
-  if (Debug)  
-    ShowSerialData();
+  ShowSerialData();
   previousLat=currentLat;
   previousLon=currentLon;
   digitalWrite(REDLed, LOW);
   digitalWrite(GREENLed, LOW);
   digitalWrite(YELLOWLed, LOW);  
+  if ((ShowMessages) || (Debug))
+    Serial.println("    Done!");
+  msg=String("");
 }
 
+void SendSMSMessage()
+{
+  msg=String("");
+  if ((ShowMessages) || (Debug))
+    Serial.println("--- Sending SMS...");
+  Serial1.println("AT+CMGF=1");
+  delay(1000);
+  Serial1.println("AT+CSMP=17,167,0,241");
+  delay(1000);
+  Serial1.print("AT+CMGS=\"");
+  Serial1.print("+30");				// Add +30...
+  Serial1.print(MobilePhoneNumber);
+  Serial1.println("\"\r");
+  delay(1000);
+  Serial1.print("Lon: ");
+  Serial1.print(currentLon,7);
+  Serial1.print("\r\n");
+  Serial1.print("Lat: ");
+  Serial1.print(currentLat,7);
+  Serial1.print("\r\n");
+  Serial1.print("Speed: ");
+  Serial1.print(currentSpeed);
+  Serial1.print("km/h\r\n");
+  Serial1.print("Course: ");
+  Serial1.print(currentCourse);
+  Serial1.print("\r\n");
+  Serial1.print("Altitude: ");
+  Serial1.print(currentAlt);
+  Serial1.print("m\r\n");
+  Serial1.print("Satellites: ");
+  Serial1.print(currentSats);
+  Serial1.print("\r\n");
+  Serial1.print("Temp: ");
+  Serial1.print(currentTemp,1);
+  Serial1.print("C\r\n");
+  Serial1.println();
+  Serial1.write(0x1A);  //Equivalent to sending Ctrl+Z 
+  ShowSerialData(); 
+  if ((ShowMessages) || (Debug))
+    Serial.println("    Done!");
+  msg=String("");
+  
+}
 void ShowSerialData()
 {
  if (Serial1.available())              // if date is comming from GSM Shield port ==> data show on Serial port
@@ -410,8 +407,56 @@ void ShowSerialData()
      if (count == 128)
        break;
    }
-   Serial.write(buffer,count);            // if data transmission ends, write buffer to serial port
+   if (Debug)
+     Serial.write(buffer,count);            // if data transmission ends, write buffer to serial port
    clearBufferArray();              // call clearBufferArray function to clear the storaged data from the array
    count = 0;                       // set counter of while loop to zero
  }
 } 
+
+
+
+void clearBufferArray()              // function to clear buffer array
+{
+  for (int i=0; i<count; i++)
+  { 
+    if ((buffer[i] != 10) && (buffer[i]!=13))
+      msg+=String(char(buffer[i]));
+    buffer[i]=NULL;
+  }
+  
+// checks for messages  
+  if (msg.indexOf("RING") >= 0)  
+  {
+    if ((ShowMessages) || (Debug))
+      Serial.println("--- RING! Someone is calling!");
+    digitalWrite(REDLed, HIGH);
+    digitalWrite(GREENLed, HIGH);
+    digitalWrite(YELLOWLed, HIGH);
+  }
+  if (msg.indexOf("CLIP")>=0)
+  {
+    int quote=msg.indexOf("\"");
+    String callerid = msg.substring(quote+1,msg.length());
+    quote=callerid.indexOf("\"");
+    callerid = callerid.substring(0,quote);
+    if (callerid.indexOf("+30")==0)
+      callerid = callerid.substring(3,callerid.length());
+    if ((ShowMessages) || (Debug))
+    {
+      Serial.print("--- CallerID: ");
+      Serial.println(callerid);
+    }
+    if (callerid==MobilePhoneNumber)
+    {
+      if ((ShowMessages) || (Debug))
+        Serial.println("--- Hanging Up Call");
+      HangUpCall();
+      delay(5000);
+      SendSMSMessage();
+      ShowSerialData();
+    }
+  }
+  if (msg.length()>100)
+    msg=String("");
+}
