@@ -1,4 +1,4 @@
-// #define SHOWMEMORY       // Uncomment for showing free memory
+// #define SHOWMEMORY                       // Uncomment for showing free memory every second on console
 
 #ifdef SHOWMEMORY
   #include <MemoryFree.h>  
@@ -18,8 +18,8 @@ float currentTemp=0.0,SumTemp=0.0;
 char currentTime[18];
 long UpdateMillis, StartMillis;
 
-unsigned char buffer[128];         // buffer array for data recieve over serial port
-int count=0;                       // counter for buffer array 
+unsigned char buffer[128];                   // buffer array for data received from GSM
+int count=0;                                 // counter for buffer array 
 
 #define SoftPowerPin   2
 #define ButtonPin     13
@@ -28,12 +28,14 @@ int count=0;                       // counter for buffer array
 #define  YELLOWLed    10
 #define  LM35Pin      A3
 
-#define MobilePhoneNumber "MY_PHONE_NUMBER"
+#define MyPhoneNumber "+3069XXXXXXXX"         // My phone number. Used for SMS, CLID etc.
+#define APN           "internet.vodafone.gr"  // APN
+#define URL           "http://XXX.XXXXX.XX"   // URL for sending the data over GPRS
 
-#define GPSOn true
-#define GPSDebug false
-#define Debug false
-#define ShowMessages true
+#define GPSOn true                            // GPS active or not.
+#define GPSDebug false                        // Display GPS data (warning, too much data)
+#define Debug false                           // Show response messages from GMS
+#define ShowMessages true                     // Show info messages
 
 #ifdef SHOWMEMORY
   long MemoryMillis;
@@ -51,37 +53,24 @@ void setup()
   pinMode(ButtonPin, INPUT);
   if ((ShowMessages) || (Debug))
     Serial.begin(19200);
-  digitalWrite(REDLed, HIGH);
-  delay(200);
-  digitalWrite(REDLed, LOW);
-  digitalWrite(GREENLed, HIGH);
-  delay(200);
-  digitalWrite(GREENLed, LOW);
-  digitalWrite(YELLOWLed, HIGH);
-  delay(200);
-  digitalWrite(YELLOWLed, LOW);
-  delay(200);
-  digitalWrite(REDLed, HIGH);
-  digitalWrite(GREENLed, HIGH);
-  digitalWrite(YELLOWLed, HIGH);
-  delay(200);
   digitalWrite(REDLed, LOW);
   digitalWrite(GREENLed, LOW);
   digitalWrite(YELLOWLed, LOW);
   if ((ShowMessages) || (Debug))
   {
-    Serial.println("+-------------------+");
-    Serial.println("| GPS GPRS Tracking |");
-    Serial.println("+-------------------+");
+    Serial.println("+---------------------------+");
+    Serial.println("|   GPS GSM/GPRS Tracking   |");
+    Serial.println("| (c)2013, Antonis Maglaras |");
+    Serial.println("+---------------------------+");
     Serial.println();
-    Serial.println("Power On");
+    Serial.println("--- Power On GSM...");
   }
   Serial1.begin(19200);
-  PowerUp();
+  PowerOnOff();
   if (GPSOn)
   {
     gpsserial.begin(9600);
-    gpsserial.println("$PMTK301,2*2E");              // DGPS = WAAS
+    gpsserial.println("$PMTK301,2*2E");              // Enable DGPS = WAAS
     delay(1000);
     gpsserial.println("$PMTK397,0.4*39");            // Do not count speed less than 0,4m/s (1.4km/h)
     delay(1000);
@@ -144,7 +133,7 @@ void loop() // run over and over
 
 
 
-void PowerUp()                      // Software power-up GSM shield
+void PowerOnOff()                      // Software power-up GSM shield
 {
  digitalWrite(SoftPowerPin,LOW);
  delay(100);
@@ -283,8 +272,18 @@ void UpdateOverGPRS()
     Serial.println("--- Starting GPRS update..."); 
   Serial1.println("AT+CGATT?");
   delay(1000);
+
+
+
+  if (ProcessData("OK"))
+    Serial.println("WE HAVE OK");
+
+
+
   ShowSerialData();
-  Serial1.println("AT+CSTT=\"internet.vodafone.gr\",\"\",\"\"");//setting the APN, the second need you fill in your local apn server
+  Serial1.print("AT+CSTT=\"");
+  Serial1.print(APN);
+  Serial1.print("\",\"\",\"\"");//setting the APN, the second need you fill in your local apn server
   Serial1.write(0x1A);
   delay(2000); 
   ShowSerialData();
@@ -308,7 +307,9 @@ void UpdateOverGPRS()
   Serial1.write(0x1A);
   delay(2000);
   ShowSerialData();
-  Serial1.println("AT+CIPSTART=\"TCP\",\"magla.ath.cx\",\"80\"");
+  Serial1.print("AT+CIPSTART=\"TCP\",\"");
+  Serial1.print(URL);
+  Serial1.println("\",\"80\"");
   Serial1.write(0x1A);
   delay(3000);
   ShowSerialData();
@@ -364,8 +365,7 @@ void SendSMSMessage()
   Serial1.println("AT+CSMP=17,167,0,241");
   delay(1000);
   Serial1.print("AT+CMGS=\"");
-  Serial1.print("+30");				// Add +30...
-  Serial1.print(MobilePhoneNumber);
+  Serial1.print(MyPhoneNumber);
   Serial1.println("\"\r");
   delay(1000);
   Serial1.print("Lon: ");
@@ -397,36 +397,39 @@ void SendSMSMessage()
   msg=String("");
   
 }
+
+
+
 void ShowSerialData()
 {
- if (Serial1.available())              // if date is comming from GSM Shield port ==> data show on Serial port
+ if (Serial1.available())              // if date are comming from GSM 
  {
-   while(Serial1.available())          // reading data into char array 
+   while(Serial1.available())          // reading them and put into char array 
    {
-     buffer[count++]=Serial1.read();     // writing data into array
+     buffer[count++]=Serial1.read();   
      if (count == 128)
        break;
    }
    if (Debug)
-     Serial.write(buffer,count);            // if data transmission ends, write buffer to serial port
-   clearBufferArray();              // call clearBufferArray function to clear the storaged data from the array
-   count = 0;                       // set counter of while loop to zero
+     Serial.write(buffer,count);       // if data transmission ends, write buffer to console
+   clearBufferArray();                 // call clearBufferArray function to clear the data and make some process
+   count = 0;                          
  }
 } 
 
 
 
-void clearBufferArray()              // function to clear buffer array
+void clearBufferArray() 
 {
   for (int i=0; i<count; i++)
   { 
     if ((buffer[i] != 10) && (buffer[i]!=13))
-      msg+=String(char(buffer[i]));
-    buffer[i]=NULL;
+      msg+=String(char(buffer[i]));              // Copy the buffer data to string for processing
+    buffer[i]=NULL;                              // Empty the buffer
   }
   
 // checks for messages  
-  if (msg.indexOf("RING") >= 0)  
+  if (msg.indexOf("RING") >= 0)                  // RING detected
   {
     if ((ShowMessages) || (Debug))
       Serial.println("--- RING! Someone is calling!");
@@ -434,23 +437,26 @@ void clearBufferArray()              // function to clear buffer array
     digitalWrite(GREENLed, HIGH);
     digitalWrite(YELLOWLed, HIGH);
   }
-  if (msg.indexOf("CLIP")>=0)
+  if (msg.indexOf("CLIP")>=0)                    // CallerID detected
   {
     int quote=msg.indexOf("\"");
     String callerid = msg.substring(quote+1,msg.length());
     quote=callerid.indexOf("\"");
     callerid = callerid.substring(0,quote);
-    if (callerid.indexOf("+30")==0)
-      callerid = callerid.substring(3,callerid.length());
+//    if (callerid.indexOf("+30")==0)              // Cut the +30 from CallerID
+//      callerid = callerid.substring(3,callerid.length());
     if ((ShowMessages) || (Debug))
     {
       Serial.print("--- CallerID: ");
       Serial.println(callerid);
     }
-    if (callerid==MobilePhoneNumber)
+    if (callerid==MyPhoneNumber)                  // It's me calling. Send SMS with information.
     {
       if ((ShowMessages) || (Debug))
-        Serial.println("--- Hanging Up Call");
+      {
+        Serial.println("--- It's me calling!");
+        Serial.println("    Hanging Up Call");
+      }
       HangUpCall();
       delay(5000);
       SendSMSMessage();
@@ -459,4 +465,45 @@ void clearBufferArray()              // function to clear buffer array
   }
   if (msg.length()>100)
     msg=String("");
+}
+
+
+
+
+
+
+
+boolean ProcessData(String checkForString)
+{
+  msg=String("");
+  if (Serial1.available())              
+  {
+    while(Serial1.available())          
+    {
+      buffer[count++]=Serial1.read();     
+      if (count == 128)
+        break;
+    }
+    if (Debug)
+      Serial.write(buffer,count);            
+    for (int i=0; i<count; i++)
+    { 
+      if ((buffer[i] != 10) && (buffer[i]!=13))
+        msg+=String(char(buffer[i]));
+      buffer[i]=NULL;
+    }
+  
+ // checks for messages  
+    if (msg.indexOf(checkForString) >= 0)  
+    {
+      msg=String("");
+      return true;
+    }
+    else
+    {
+      msg=String("");
+      return false;
+    }
+  }
+  msg=String("");
 }
