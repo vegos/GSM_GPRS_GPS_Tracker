@@ -8,41 +8,45 @@
 #include <TinyGPS.h>
 
 TinyGPS gps;
-SoftwareSerial gpsserial(11, 12);
-static void gpsdump(TinyGPS &gps);
+SoftwareSerial gpsserial(11, 12);                                      // Software Serial for GPS on pins 11 & 12
+static void gpsdump(TinyGPS &gps);           
 static bool feedgps();
-int currentSats=0,currentAlt=0,currentSpeed=0,currentCourse=0;
-float currentLat=0.0,currentLon=0.0,previousLat=1.0,previousLon=1.0;
-int Times;
+unsigned char buffer[128];                                             // buffer array for data received from GSM
+int count=0;                                                           // counter for buffer array 
+String msg = String("");                                               // buffer for processing incoming data from GSM
+int currentSats=0,currentAlt=0,currentSpeed=0,currentCourse=0;         // Keep the current & previous location, speed, stats etc.
+float currentLat=0.0,currentLon=0.0,previousLat=1.0,previousLon=1.0;   // --//--
+int Times;  
 float currentTemp=0.0,SumTemp=0.0;
-char currentTime[18];
-long UpdateMillis, StartMillis;
-
-unsigned char buffer[128];                   // buffer array for data received from GSM
-int count=0;                                 // counter for buffer array 
-
-#define SoftPowerPin   2
-#define ButtonPin     13
-#define  REDLed        8
-#define  GREENLed      9
-#define  YELLOWLed    10
-#define  LM35Pin      A3
-
-#define MyPhoneNumber "+3069XXXXXXXX"         // My phone number. Used for SMS, CLID etc.
-#define APN           "internet.vodafone.gr"  // APN
-#define URL           "http://XXX.XXXXX.XX"   // URL for sending the data over GPRS
-
-#define GPSOn true                            // GPS active or not.
-#define GPSDebug false                        // Display GPS data (warning, too much data)
-#define Debug false                           // Show response messages from GMS
-#define ShowMessages true                     // Show info messages
-
+char currentTime[18];                                                  // Decoded time from GPS
+long UpdateMillis, StartMillis;         
 #ifdef SHOWMEMORY
   long MemoryMillis;
 #endif
 
-String msg = String("");
 
+#define SoftPowerPin       2
+#define ButtonPin         13
+#define REDLed             8
+#define GREENLed           9
+#define YELLOWLed         10
+#define LM35Pin           A3
+
+#define MyPhoneNumber     "+30XXXXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
+#define APN               "XXXXXXXXXXXXXXXXXXXX"                       // APN
+#define URL               "http://XXX.XXXXX.XX"                        // URL for sending the data over GPRS
+
+#define GPSOn             true                                         // GPS active or not.
+#define GPSDebug          false                                        // Display GPS data (warning, too much data)
+#define Debug             true                                         // Show response messages from GMS
+#define ShowMessages      true                                         // Show info messages
+
+
+
+//************************************************************************************************************************
+// Setup Procedure. 
+// Initialize values.
+//************************************************************************************************************************
 
 void setup()  
 {
@@ -53,9 +57,17 @@ void setup()
   pinMode(ButtonPin, INPUT);
   if ((ShowMessages) || (Debug))
     Serial.begin(19200);
-  digitalWrite(REDLed, LOW);
-  digitalWrite(GREENLed, LOW);
-  digitalWrite(YELLOWLed, LOW);
+  for (int tmp=0; tmp<3; tmp++)
+  {
+    delay(150);
+    digitalWrite(REDLed, HIGH);
+    digitalWrite(GREENLed, HIGH);
+    digitalWrite(YELLOWLed, HIGH);
+    delay(150);
+    digitalWrite(REDLed, LOW);
+    digitalWrite(GREENLed, LOW);
+    digitalWrite(YELLOWLed, LOW);
+  }
   if ((ShowMessages) || (Debug))
   {
     Serial.println("+---------------------------+");
@@ -63,7 +75,7 @@ void setup()
     Serial.println("| (c)2013, Antonis Maglaras |");
     Serial.println("+---------------------------+");
     Serial.println();
-    Serial.println("--- Power On GSM...");
+    Serial.println("- Power On GSM...");
   }
   Serial1.begin(19200);
   PowerOnOff();
@@ -82,27 +94,37 @@ void setup()
 #endif
 }
 
-void loop() // run over and over
+
+//************************************************************************************************************************
+// Loop Procedure. 
+// Main program.
+//************************************************************************************************************************
+
+void loop()
 {
 #ifdef SHOWMEMORY
     if ((millis()-MemoryMillis)>1000)
     {
-      Serial.print("Free memory: ");
+      Serial.print("- Free memory: ");
       Serial.print(freeMemory());
       Serial.println(" bytes");
       MemoryMillis=millis();
     }
 #endif
-  if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     // Update every 1 minute via GPRS (when valid gps lon/lat)
+  if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     // Update every X time via GPRS (when valid gps lon/lat and position has not already sent)
   {
     msg=String("");
     UpdateOverGPRS();
     UpdateMillis=millis();
   }
-  if (digitalRead(ButtonPin)==HIGH)      // on button press, send sms
+  if (digitalRead(ButtonPin)==HIGH)     // On button press, send sms
   {
-    msg=String("");
-    SendSMSMessage();
+    delay(100);
+    if (digitalRead(ButtonPin)==HIGH)   // Check for long button press
+    { 
+      msg=String("");
+      SendSMSMessage();
+    }
   }
   if (GPSOn)
   {
@@ -118,8 +140,8 @@ void loop() // run over and over
  ShowSerialData();
  if (Debug)  
  {
-   if (Serial.available())            // if data is available on hardwareserial port ==> data is comming from PC or notebook
-     Serial1.write(Serial.read());       // write it to the Serial1 shield
+   if (Serial.available())               // if data are available on hardwareserial port ==> data is comming from PC or notebook
+     Serial1.write(Serial.read());       // send them to the Serial1 (GPS shield)
  }
   GetTemperature();
   // clean temperature readings   
@@ -132,6 +154,10 @@ void loop() // run over and over
 
 
 
+//************************************************************************************************************************
+// PowerOnOff Procedure. 
+// Send a signal to the shield soft-power pin for turning on/off
+//************************************************************************************************************************
 
 void PowerOnOff()                      // Software power-up GSM shield
 {
@@ -145,6 +171,10 @@ void PowerOnOff()                      // Software power-up GSM shield
 
 
 
+//************************************************************************************************************************
+// AnswerCall Procedure. 
+// Answers the current call.
+//************************************************************************************************************************
 
 void AnswerCall()
 {
@@ -157,7 +187,10 @@ void AnswerCall()
 
 
 
-
+//************************************************************************************************************************
+// HangUpCall Procedure. 
+// Hungups the current call.
+//************************************************************************************************************************
 
 void HangUpCall()
 {
@@ -173,7 +206,10 @@ void HangUpCall()
 
 
 
-
+//************************************************************************************************************************
+// GPSdump Procedure. 
+// Process data from GPS.
+//************************************************************************************************************************
 
 static void gpsdump(TinyGPS &gps)
 {
@@ -218,7 +254,7 @@ static void gpsdump(TinyGPS &gps)
   currentCourse=gps.f_course();
   if (GPSDebug)
   {
-    Serial.print("[GPS] Lat: ");
+    Serial.print("- [GPS] Lat: ");
     Serial.print(currentLat,7);
     Serial.print(" - Lon: ");
     Serial.print(currentLon,7);
@@ -236,6 +272,11 @@ static void gpsdump(TinyGPS &gps)
 }
 
 
+//************************************************************************************************************************
+// FeedGPS Procedure. 
+// Feeds GPS routings with NMEA data from Serial Port.
+//************************************************************************************************************************
+
 static bool feedgps()
 {
   while (gpsserial.available())
@@ -252,6 +293,11 @@ static bool feedgps()
 }
 
 
+//************************************************************************************************************************
+// GetTemperature Procedure. 
+// Reads temperature (and filters the data).
+//************************************************************************************************************************
+
 void GetTemperature()
 {
   Times+=1;
@@ -259,6 +305,11 @@ void GetTemperature()
   currentTemp=SumTemp/Times;  
 }
 
+
+//************************************************************************************************************************
+// UpdateOverGPRS Procedure. 
+// Checks for GPRS access and sends the data.
+//************************************************************************************************************************
 
 void UpdateOverGPRS()
 {
@@ -269,54 +320,97 @@ void UpdateOverGPRS()
   digitalWrite(GREENLed, HIGH);
   digitalWrite(YELLOWLed, HIGH); 
   if ((ShowMessages) || (Debug))
-    Serial.println("--- Starting GPRS update..."); 
+    Serial.println("- Starting GPRS update..."); 
   Serial1.println("AT+CGATT?");
   delay(1000);
-
-
-
-  if (ProcessData("OK"))
-    Serial.println("WE HAVE OK");
-
-
-
-  ShowSerialData();
+  if (!HasResponded("1"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- No GPRS access. Discarding...");
+    return;
+  }
   Serial1.print("AT+CSTT=\"");
   Serial1.print(APN);
   Serial1.print("\",\"\",\"\"");//setting the APN, the second need you fill in your local apn server
-  Serial1.write(0x1A);
+//  Serial1.write(0x1A);
   delay(2000); 
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error setting APN. Discarding...");
+    return;
+  }
   ShowSerialData();
   Serial1.println("AT+CIPSRIP=1");
-  ShowSerialData();
   delay(2000);
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CIICR");  
   delay(2000);
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CIFSR");
-  Serial1.write(0x1A);
+//  Serial1.write(0x1A);
   delay(2000); 
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CDNSCFG?");
   delay(2000);
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CIPHEAD=1");
   delay(2000);
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CIPSTATUS");
-  Serial1.write(0x1A);
+//  Serial1.write(0x1A);
   delay(2000);
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.print("AT+CIPSTART=\"TCP\",\"");
   Serial1.print(URL);
   Serial1.println("\",\"80\"");
   Serial1.write(0x1A);
   delay(3000);
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CIPSTATUS");
-  Serial1.write(0x1A);
+//  Serial1.write(0x1A);
   delay(2000);
-  ShowSerialData();
+  if (HasResponded("ERROR"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- Error. Discarding...");
+    return;
+  }
   Serial1.println("AT+CIPSEND");
   delay(5000);
   ShowSerialData();
@@ -355,11 +449,25 @@ void UpdateOverGPRS()
   msg=String("");
 }
 
+
+//************************************************************************************************************************
+// SendSMSMessage Procedure. 
+// Sends SMS with location details.
+//************************************************************************************************************************
+
 void SendSMSMessage()
 {
   msg=String("");
   if ((ShowMessages) || (Debug))
-    Serial.println("--- Sending SMS...");
+    Serial.println("- Sending SMS...");
+  Serial1.println("AT+CREG?");
+  delay(1000);
+  if (!HasResponded("CREG: 0,1"))
+  {
+    if ((Debug) || (ShowMessages))
+      Serial.println("- No network registration. Discarding...");
+    return;
+  }
   Serial1.println("AT+CMGF=1");
   delay(1000);
   Serial1.println("AT+CSMP=17,167,0,241");
@@ -399,6 +507,10 @@ void SendSMSMessage()
 }
 
 
+//************************************************************************************************************************
+// ShowSerialData Procedure. 
+// Display data received from GSM modem.
+//************************************************************************************************************************
 
 void ShowSerialData()
 {
@@ -418,26 +530,21 @@ void ShowSerialData()
 } 
 
 
+//************************************************************************************************************************
+// ClearBufferArray Procedure. 
+// Clear data from buffer and process the output.
+//************************************************************************************************************************
 
 void clearBufferArray() 
 {
   for (int i=0; i<count; i++)
   { 
-    if ((buffer[i] != 10) && (buffer[i]!=13))
+    if ((buffer[i] != 10) && (buffer[i]!=13) && (buffer[i]!=32) && (buffer[i]!=0) && (buffer[i]!=26))
       msg+=String(char(buffer[i]));              // Copy the buffer data to string for processing
     buffer[i]=NULL;                              // Empty the buffer
   }
   
-// checks for messages  
-  if (msg.indexOf("RING") >= 0)                  // RING detected
-  {
-    if ((ShowMessages) || (Debug))
-      Serial.println("--- RING! Someone is calling!");
-    digitalWrite(REDLed, HIGH);
-    digitalWrite(GREENLed, HIGH);
-    digitalWrite(YELLOWLed, HIGH);
-  }
-  if (msg.indexOf("CLIP")>=0)                    // CallerID detected
+  if (msg.indexOf("CLIP") >= 0)                  // CallerID detected
   {
     int quote=msg.indexOf("\"");
     String callerid = msg.substring(quote+1,msg.length());
@@ -447,21 +554,31 @@ void clearBufferArray()
 //      callerid = callerid.substring(3,callerid.length());
     if ((ShowMessages) || (Debug))
     {
-      Serial.print("--- CallerID: ");
+      Serial.print("- CallerID: ");
       Serial.println(callerid);
     }
     if (callerid==MyPhoneNumber)                  // It's me calling. Send SMS with information.
     {
       if ((ShowMessages) || (Debug))
       {
-        Serial.println("--- It's me calling!");
-        Serial.println("    Hanging Up Call");
+        Serial.println("- It's me calling!");
+        Serial.println("- Hanging Up Call");
       }
       HangUpCall();
       delay(5000);
       SendSMSMessage();
       ShowSerialData();
     }
+    msg=String("");
+  }
+// checks for messages  
+  if (msg.indexOf("RING") >= 0)                  // RING detected
+  {
+    if ((ShowMessages) || (Debug))
+      Serial.println("- RING! Someone is calling!");
+    digitalWrite(REDLed, HIGH);
+    digitalWrite(GREENLed, HIGH);
+    digitalWrite(YELLOWLed, HIGH);
   }
   if (msg.length()>100)
     msg=String("");
@@ -469,11 +586,12 @@ void clearBufferArray()
 
 
 
+//************************************************************************************************************************
+// HasResponded Procedure. 
+// Check for the GSM modem response.
+//************************************************************************************************************************
 
-
-
-
-boolean ProcessData(String checkForString)
+boolean HasResponded(String checkForString)
 {
   msg=String("");
   if (Serial1.available())              
@@ -488,7 +606,7 @@ boolean ProcessData(String checkForString)
       Serial.write(buffer,count);            
     for (int i=0; i<count; i++)
     { 
-      if ((buffer[i] != 10) && (buffer[i]!=13))
+      if ((buffer[i] != 10) && (buffer[i]!=13) && (buffer[i]!=32) && (buffer[i]!=0) && (buffer[i]!=26))
         msg+=String(char(buffer[i]));
       buffer[i]=NULL;
     }
