@@ -34,9 +34,9 @@ long UpdateMillis, StartMillis;
 #define YELLOWLed         10
 #define LM35Pin           A3
 
-#define MyPhoneNumber     "+306948981542"                              // My phone number. Used for SMS, CLID etc.
-#define APN               "internet.vodafone.gr"                       // APN.
-#define URL               "http://magla.ath.cx"                        // URL for sending the data over GPRS.
+#define MyPhoneNumber     "+3069XXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
+#define APN               "XXXXXXXXXXXXXXXXXXXX"                       // APN.
+#define URL               "http://XXX.XXXXX.XX"                        // URL for sending the data over GPRS.
 
 #define GPSOn             true                                         // GPS active or not.
 #define GPSTempDebug      false                                        // Display GPS & temperature data for debugging.
