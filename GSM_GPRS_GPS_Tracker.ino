@@ -1,4 +1,20 @@
-// #define SHOWMEMORY                       // Uncomment for showing free memory every second on console
+/*
+
+
+ - GGGGGG - PPPPPP -- SSSSS ------- //  TTTTTTTT --------------------------- KK - © Antonis Maglaras -
+  HG    GG  PP   PP  SS   SS       //   T  TT  T                             KK
+  GG        PP   PP  SS           //       TT     RR RRR    AAAA     CCCCC   KK  KK   EEEEE   RR RRRR
+  GG  GGGG  PPPPPP    SSSSS      //        TT      RRR RR      AA   CC   CC  KK KK   EE   EE   RRR  RR
+  GG    GG  PP            SS    //         TT      RR       AAAAA   CC       KKKK    EEEEEE    RR
+  GG    GG  PP       SS   SS   //          TT      RR      AA  AA   CC   CC  KK KK   EE        RR
+   GGGGGG   PP        SSSSS   //          TTTT    RRRR      AAAA A   CCCCC   KK  KK   EEEEE   RRRR
+
+
+*/
+
+
+
+// #define SHOWMEMORY                       // Uncomment thins for showing free memory every 3 seconds on console
 
 #ifdef SHOWMEMORY
   #include <MemoryFree.h>  
@@ -27,15 +43,15 @@ long UpdateMillis, StartMillis;
 
 
 
-#define SoftPowerPin       2
-#define ButtonPin         13
-#define REDLed             8
-#define GREENLed           9
-#define YELLOWLed         10
-#define LM35Pin           A3
+#define SoftPowerPin       2                                           // GSM Shield Soft-Power-on Pin
+#define ButtonPin         13                                           // Button for sending SMS
+#define REDLed             8                                           // RED LED Pin
+#define GREENLed           9                                           // GREEN LED Pin
+#define YELLOWLed         10                                           // YELLOW LED Pin
+#define LM35Pin           A3                                           // LM35 Temperature Sensor Pin
 
 #define MyPhoneNumber     "+3069XXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
-#define APN               "XXXXXXX"                                    // APN.
+#define APN               "XXXXXX"                                     // APN.
 #define URL               "http://XXX.XXXXX.XX"                        // URL for sending the data over GPRS.
 
 #define GPSOn             true                                         // GPS active or not.
@@ -109,7 +125,8 @@ void loop()
       MemoryMillis=millis();
     }
 #endif
-  if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     // Update every X time via GPRS (when valid gps lon/lat and position has not already sent)
+  if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     
+  // Update every X time via GPRS (when valid gps lon/lat and position has not already sent)
   {
     msg="";
     UpdateOverGPRS();
@@ -139,12 +156,11 @@ void loop()
  ShowSerialData();
  if ((Debug) || (ShowMessages))
  {
-   if (Serial.available())               // if data are available on hardwareserial port ==> data is comming from PC or notebook
-     Serial1.write(Serial.read());       // send them to the Serial1 (GPS shield)
+   if (Serial.available())               // if data are available on console
+     Serial1.write(Serial.read());       // send them to the Serial1 (GSM shield) // to pass commands
  }
-  GetTemperature();
-  // clear temperature readings   
-  if (Times>1000)
+  GetTemperature();                      // Get temperature readings
+  if (Times>1000)                        // Every 1000 times, reset average readings
   {
     if (GPSTempDebug)
     {
@@ -163,7 +179,7 @@ void loop()
 // Send a signal to the shield soft-power pin for turning on/off
 //************************************************************************************************************************
 
-void PowerOnOff()                      // Software power-up GSM shield
+void PowerOnOff()                      
 {
  digitalWrite(SoftPowerPin,LOW);
  delay(100);
