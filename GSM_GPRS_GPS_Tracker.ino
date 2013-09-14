@@ -35,7 +35,7 @@ long UpdateMillis, StartMillis;
 #define LM35Pin           A3
 
 #define MyPhoneNumber     "+3069XXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
-#define APN               "XXXXXXXXXXXXXXXXXXXX"                       // APN.
+#define APN               "XXXXXXX"                                    // APN.
 #define URL               "http://XXX.XXXXX.XX"                        // URL for sending the data over GPRS.
 
 #define GPSOn             true                                         // GPS active or not.
@@ -143,7 +143,7 @@ void loop()
      Serial1.write(Serial.read());       // send them to the Serial1 (GPS shield)
  }
   GetTemperature();
-  // clean temperature readings   
+  // clear temperature readings   
   if (Times>1000)
   {
     if (GPSTempDebug)
@@ -580,6 +580,7 @@ void clearBufferArray()
 
   if (msg.indexOf("RING") >= 0)                  // RING detected
   {
+    msg="";
     if ((ShowMessages) || (Debug))
       Serial.println("- RING! Someone is calling!");
     TurnOnLEDs(true);
