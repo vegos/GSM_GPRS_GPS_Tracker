@@ -14,7 +14,7 @@
 
 
 
-// #define SHOWMEMORY                       // Uncomment thins for showing free memory every 3 seconds on console
+//#define SHOWMEMORY                       // Uncomment thins for showing free memory every 3 seconds on console
 
 #ifdef SHOWMEMORY
   #include <MemoryFree.h>  
@@ -50,14 +50,14 @@ long UpdateMillis, StartMillis;
 #define YELLOWLed         10                                           // YELLOW LED Pin
 #define LM35Pin           A3                                           // LM35 Temperature Sensor Pin
 
-#define MyPhoneNumber     "+3069XXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
-#define APN               "XXXXXX"                                     // APN.
+#define MyPhoneNumber     "+30XXXXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
+#define APN               "XXXXXXXXXXXXXXXXXXXX"                       // APN.
 #define URL               "http://XXX.XXXXX.XX"                        // URL for sending the data over GPRS.
 
 #define GPSOn             true                                         // GPS active or not.
 #define GPSTempDebug      false                                        // Display GPS & temperature data for debugging.
-#define Debug             false                                        // Show response messages from GMS.
-#define ShowMessages      true                                         // Show info messages.
+#define ShowMessages      true                                         // Show messages from GSM.
+#define Debug             false                                        // Show modem response messages.
 
 
 
@@ -73,7 +73,7 @@ void setup()
   pinMode(YELLOWLed, OUTPUT);
   pinMode(SoftPowerPin, OUTPUT);
   pinMode(ButtonPin, INPUT);
-  if ((ShowMessages) || (Debug) || (GPSTempDebug))
+  if ((ShowMessages) || (GPSTempDebug))
     Serial.begin(19200);
   for (int tmp=0; tmp<3; tmp++)
   {
@@ -82,7 +82,7 @@ void setup()
     delay(150);
     TurnOnLEDs(false);
   }
-  if ((ShowMessages) || (Debug))
+  if (ShowMessages)
   {
     Serial.println("+---------------------------+");
     Serial.println("|   GPS GSM/GPRS Tracking   |");
@@ -125,11 +125,14 @@ void loop()
       MemoryMillis=millis();
     }
 #endif
+
   if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     
   // Update every X time via GPRS (when valid gps lon/lat and position has not already sent)
   {
+    TurnOnLEDs(true);
     msg="";
     UpdateOverGPRS();
+    TurnOnLEDs(false);
     UpdateMillis=millis();
   }
   if (digitalRead(ButtonPin)==HIGH)     // On long button press, send sms
@@ -141,6 +144,7 @@ void loop()
       msg="";
       SendSMSMessage();
     }
+    TurnOnLEDs(false);    
   }
   if (GPSOn)
   {
@@ -154,7 +158,7 @@ void loop()
     StartMillis=millis();
   }
  ShowSerialData();
- if ((Debug) || (ShowMessages))
+ if (ShowMessages)
  {
    if (Serial.available())               // if data are available on console
      Serial1.write(Serial.read());       // send them to the Serial1 (GSM shield) // to pass commands
@@ -335,111 +339,72 @@ void UpdateOverGPRS()
   msg="";
   if ((previousLat==currentLat) && (previousLon==currentLon))
     return;
-  TurnOnLEDs(true);
-  if ((ShowMessages) || (Debug))
+  if (ShowMessages)
     Serial.println("- Starting GPRS update..."); 
-  Serial1.println("AT+CGATT?");
+  Serial1.print("AT+CGATT?");
+  Serial1.print("\r");
   delay(1000);
   if (HasResponded("CGATT:0"))               // GPRS is not active
   {
-    if ((Debug) || (ShowMessages))
+    if (ShowMessages)
       Serial.println("- No GPRS access. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.print("AT+CSTT=\"");
-  Serial1.print(APN);
-  Serial1.print("\",\"\",\"\"");       // Setup the APN.
-//  Serial1.write(0x1A);
-  delay(2000); 
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error setting APN. Discarding...");
-    TurnOnLEDs(false);
     return;
   }
   ShowSerialData();
-  Serial1.println("AT+CIPSRIP=1");
-  delay(2000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CIICR");  
-  delay(2000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CIFSR");
+  Serial1.print("AT+CSTT=\"");
+  Serial1.print(APN);
+  Serial1.print("\",\"\",\"\"");       // Setup the APN.
+  Serial1.print("\r");
 //  Serial1.write(0x1A);
   delay(2000); 
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CDNSCFG?");
+  ShowSerialData();
+  Serial1.print("AT+CIPSRIP=1");
+  Serial1.print("\r");
   delay(2000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CIPHEAD=1");
+  ShowSerialData();
+  Serial1.print("AT+CIICR");  
+  Serial1.print("\r");
   delay(2000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CIPSTATUS");
+  ShowSerialData();
+  Serial1.print("AT+CIFSR");
+  Serial1.print("\r");
+//  Serial1.write(0x1A);
+  delay(2000); 
+  ShowSerialData();
+  Serial1.print("AT+CDNSCFG?");
+  Serial1.print("\r");
+  delay(2000);
+  ShowSerialData();
+  Serial1.print("AT+CIPHEAD=1");
+  Serial1.print("\r");
+  delay(2000);
+  ShowSerialData();
+  Serial1.print("AT+CIPSTATUS");
+  Serial1.print("\r");
 //  Serial1.write(0x1A);
   delay(2000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
+  ShowSerialData();
   Serial1.print("AT+CIPSTART=\"TCP\",\"");
   Serial1.print(URL);
   Serial1.println("\",\"80\"");
-  Serial1.write(0x1A);
-  delay(3000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CIPSTATUS");
+//  Serial1.print("\r");
 //  Serial1.write(0x1A);
   delay(2000);
-  if (HasResponded("ERROR"))
-  {
-    if ((Debug) || (ShowMessages))
-      Serial.println("- Error. Discarding...");
-    TurnOnLEDs(false);
-    return;
-  }
-  Serial1.println("AT+CIPSEND");
-  delay(5000);
+  ShowSerialData();
+  
+  
+  
+//  delay(5000);
+  
+  
+//  Serial1.print("AT+CIPSTATUS");
+//  Serial1.print("\r");
+//  Serial1.write(0x1A);
+//  delay(3000);
+//  ShowSerialData();
+  Serial1.print("AT+CIPSEND");
+  Serial1.print("\r\n");
+  delay(3000);
   ShowSerialData();
   Serial1.print("GET /track.php?lat=");
   Serial1.print(currentLat,7);
@@ -463,13 +428,13 @@ void UpdateOverGPRS()
   Serial1.write(0x1A);
   delay(5000);
   ShowSerialData();
-  Serial1.println("AT+CIPSHUT");
+  Serial1.print("AT+CIPSHUT");
+  Serial1.print("\r");
   delay(1000);
   ShowSerialData();
   previousLat=currentLat;
   previousLon=currentLon;
-  TurnOnLEDs(false);
-  if ((ShowMessages) || (Debug))
+  if (ShowMessages)
     Serial.println("- Done!");
   msg="";
 }
@@ -483,23 +448,25 @@ void UpdateOverGPRS()
 void SendSMSMessage()
 {
   msg="";
-  if ((ShowMessages) || (Debug))
+  if (ShowMessages)
     Serial.println("- Sending SMS...");
   Serial1.println("AT+CREG?");
   delay(1000);
   if (!HasResponded("0,1"))
   {
-    if ((Debug) || (ShowMessages))
+    if (ShowMessages)
       Serial.println("- No network registration. Discarding...");
     return;
   }
-  Serial1.println("AT+CMGF=1");
+  Serial1.print("AT+CMGF=1");
+  Serial1.print("\r");
   delay(1000);
-  Serial1.println("AT+CSMP=17,167,0,241");
+  Serial1.print("AT+CSMP=17,167,0,241");
+  Serial1.print("\r");
   delay(1000);
   Serial1.print("AT+CMGS=\"");
   Serial1.print(MyPhoneNumber);
-  Serial1.println("\"\r");
+  Serial1.print("\"\r");
   delay(1000);
   Serial1.print("Lon: ");
   Serial1.print(currentLon,7);
@@ -521,14 +488,18 @@ void SendSMSMessage()
   Serial1.print("\r\n");
   Serial1.print("Temp: ");
   Serial1.print(currentTemp,1);
-  Serial1.print("C\r\n");
+  Serial1.print("C\r\n");  
+  Serial1.print("Link: http://maps.google.com/?q=");
+  Serial1.print(currentLat,7);
+  Serial1.print(",");
+  Serial1.print(currentLon,7);
+  Serial1.print("\r\n");
   Serial1.println();
   Serial1.write(0x1A);        // Send CTRL-Z
   ShowSerialData(); 
-  if ((ShowMessages) || (Debug))
+  if (ShowMessages)
     Serial.println("- Done!");
   msg="";  
-  TurnOnLEDs(false);
 }
 
 
@@ -547,10 +518,11 @@ void ShowSerialData()
      if (count == MaxBufferSize)
        break;
    }
-   count = 0;   
    if (Debug)
      Serial.write(buffer,count);       // When data transmission ends, write buffer to console for debugging.
    clearBufferArray();                 // Call clearBufferArray function to clear the data and make some process.                       
+   count = 0;
+   msg = "";
  }
 } 
 
@@ -571,17 +543,20 @@ void clearBufferArray()
   count = 0;
   if (msg.indexOf("CLIP") >= 0)                  // CallerID detected
   {
+    TurnOnLEDs(true);          
     String callerid = msg.substring(msg.indexOf("\"")+1,msg.length());
     callerid = callerid.substring(0,callerid.indexOf("\""));
-    if ((ShowMessages) || (Debug))
+    if (ShowMessages)
     {
-      Serial.print("- RING! Call from CallerID: ");
+      if (callerid.length()==13)
+        Serial.print("- RING! Call from CallerID: ");
+      else
+        Serial.print("- RING! Call from (unvalid?) CallerID: ");
       Serial.println(callerid);
     }
     if (callerid==MyPhoneNumber)                  // It's me calling. Send SMS with information.
     {
-      TurnOnLEDs(true);      
-      if ((ShowMessages) || (Debug))
+      if (ShowMessages)
       {
         Serial.println("- It's me calling!");
         Serial.println("- Hanging Up Call");
@@ -591,19 +566,19 @@ void clearBufferArray()
       SendSMSMessage();
       ShowSerialData();
     }
-    msg="";
   }
 
-  if (msg.indexOf("RING") >= 0)                  // RING detected
-  {
-    msg="";
-    if ((ShowMessages) || (Debug))
-      Serial.println("- RING! Someone is calling!");
-    TurnOnLEDs(true);
-  }
+//  if (msg.indexOf("RING") >= 0)                  // RING detected
+//  {
+//    msg="";
+//    if (ShowMessages)
+//      Serial.println("- RING! Someone is calling!");
+//    TurnOnLEDs(true);
+//  }
   
   if (msg.length()>100)                          // Keep process input buffer < X chars
     msg="";
+//  count = 0;
 }
 
 
@@ -634,7 +609,6 @@ boolean HasResponded(String checkForString)
       }
       buffer[i]=NULL;
     }
-    count = 0;   
  // checks for messages  
     if (msg.indexOf(checkForString) >= 0)  
     {
@@ -666,5 +640,4 @@ void TurnOnLEDs(boolean turnOn)
     digitalWrite(GREENLed, LOW);
     digitalWrite(YELLOWLed, LOW);    
   }
-  
 }
