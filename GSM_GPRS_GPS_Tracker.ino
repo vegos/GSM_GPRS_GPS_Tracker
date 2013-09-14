@@ -13,8 +13,8 @@ static void gpsdump(TinyGPS &gps);
 static bool feedgps();
 #define MaxBufferSize 64                                               // Buffer size
 unsigned char buffer[MaxBufferSize];                                   // Buffer array for data received from GSM modem
-uint8_t count=0;                                                       // Counter for buffer array 
-String msg = String("");                                               // Buffer for processing incoming data from GSM
+int count=0;                                                           // Counter for buffer array 
+String msg = "";                                                       // Buffer for processing incoming data from GSM
 int currentSats=0,currentAlt=0,currentSpeed=0,currentCourse=0;         // Keep the current & previous location, speed, stats etc.
 float currentLat=0.0,currentLon=0.0,previousLat=1.0,previousLon=1.0;   // --//--
 int Times;  
@@ -59,12 +59,12 @@ void setup()
   pinMode(ButtonPin, INPUT);
   if ((ShowMessages) || (Debug) || (GPSTempDebug))
     Serial.begin(19200);
-  for (uint8_t tmp=0; tmp<3; tmp++)
+  for (int tmp=0; tmp<3; tmp++)
   {
     delay(150);
-    TurnOnOffLEDs(true);
+    TurnOnLEDs(true);
     delay(150);
-    TurnOnOffLEDs(false);
+    TurnOnLEDs(false);
   }
   if ((ShowMessages) || (Debug))
   {
@@ -111,17 +111,17 @@ void loop()
 #endif
   if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     // Update every X time via GPRS (when valid gps lon/lat and position has not already sent)
   {
-    msg=String("");
+    msg="";
     UpdateOverGPRS();
     UpdateMillis=millis();
   }
   if (digitalRead(ButtonPin)==HIGH)     // On long button press, send sms
   {
-    TurnOnOffLEDs(true);
+    TurnOnLEDs(true);
     delay(500);
     if (digitalRead(ButtonPin)==HIGH)   // Check for long button press
     { 
-      msg=String("");
+      msg="";
       SendSMSMessage();
     }
   }
@@ -137,7 +137,7 @@ void loop()
     StartMillis=millis();
   }
  ShowSerialData();
- if (Debug)  
+ if ((Debug) || (ShowMessages))
  {
    if (Serial.available())               // if data are available on hardwareserial port ==> data is comming from PC or notebook
      Serial1.write(Serial.read());       // send them to the Serial1 (GPS shield)
@@ -182,11 +182,11 @@ void PowerOnOff()                      // Software power-up GSM shield
 
 void AnswerCall()
 {
-  msg=String("");  
+  msg="";  
   Serial1.println("ATA");
   delay(500);
   ShowSerialData();
-  msg=String("");  
+  msg="";  
 }
 
 
@@ -198,13 +198,13 @@ void AnswerCall()
 
 void HangUpCall()
 {
-  msg=String("");
+  msg="";
   Serial1.println("+++");
   delay(500);
   Serial1.println("ATH");
   delay(100);
   ShowSerialData();
-  msg=String("");
+  msg="";
 }
 
 
@@ -218,7 +218,7 @@ void HangUpCall()
 static void gpsdump(TinyGPS &gps)
 {
   // Get GPS Satellites. If less than 3 means no fix, so return If it's 255, we have also no fix (cold-start).
-  uint8_t Sats = gps.satellites();
+  int Sats = gps.satellites();
   if (Sats<255)
   {
     if (Sats>=3)
@@ -316,18 +316,19 @@ void GetTemperature()
 
 void UpdateOverGPRS()
 {
-  msg=String("");
+  msg="";
   if ((previousLat==currentLat) && (previousLon==currentLon))
     return;
-  TurnOnOffLEDs(true);
+  TurnOnLEDs(true);
   if ((ShowMessages) || (Debug))
     Serial.println("- Starting GPRS update..."); 
   Serial1.println("AT+CGATT?");
   delay(1000);
-  if (HasResponded("0"))               // GPRS is not active
+  if (HasResponded("CGATT:0"))               // GPRS is not active
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- No GPRS access. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.print("AT+CSTT=\"");
@@ -339,6 +340,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error setting APN. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   ShowSerialData();
@@ -348,6 +350,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CIICR");  
@@ -356,6 +359,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CIFSR");
@@ -365,6 +369,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CDNSCFG?");
@@ -373,6 +378,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CIPHEAD=1");
@@ -381,6 +387,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CIPSTATUS");
@@ -390,6 +397,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.print("AT+CIPSTART=\"TCP\",\"");
@@ -401,6 +409,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CIPSTATUS");
@@ -410,6 +419,7 @@ void UpdateOverGPRS()
   {
     if ((Debug) || (ShowMessages))
       Serial.println("- Error. Discarding...");
+    TurnOnLEDs(false);
     return;
   }
   Serial1.println("AT+CIPSEND");
@@ -442,10 +452,10 @@ void UpdateOverGPRS()
   ShowSerialData();
   previousLat=currentLat;
   previousLon=currentLon;
-  TurnOnOffLEDs(false);
+  TurnOnLEDs(false);
   if ((ShowMessages) || (Debug))
     Serial.println("- Done!");
-  msg=String("");
+  msg="";
 }
 
 
@@ -456,7 +466,7 @@ void UpdateOverGPRS()
 
 void SendSMSMessage()
 {
-  msg=String("");
+  msg="";
   if ((ShowMessages) || (Debug))
     Serial.println("- Sending SMS...");
   Serial1.println("AT+CREG?");
@@ -500,9 +510,9 @@ void SendSMSMessage()
   Serial1.write(0x1A);        // Send CTRL-Z
   ShowSerialData(); 
   if ((ShowMessages) || (Debug))
-    Serial.println("    Done!");
-  msg=String("");  
-  TurnOnOffLEDs(false);
+    Serial.println("- Done!");
+  msg="";  
+  TurnOnLEDs(false);
 }
 
 
@@ -521,10 +531,10 @@ void ShowSerialData()
      if (count == MaxBufferSize)
        break;
    }
+   count = 0;   
    if (Debug)
      Serial.write(buffer,count);       // When data transmission ends, write buffer to console for debugging.
-   clearBufferArray();                 // Call clearBufferArray function to clear the data and make some process.
-   count = 0;                          
+   clearBufferArray();                 // Call clearBufferArray function to clear the data and make some process.                       
  }
 } 
 
@@ -536,25 +546,25 @@ void ShowSerialData()
 
 void clearBufferArray() 
 {
-  for (uint8_t i=0; i<count; i++)
+  for (int i=0; i<=count; i++)
   { 
     if ((buffer[i] != 10) && (buffer[i]!=13) && (buffer[i]!=32) && (buffer[i]!=0) && (buffer[i]!=26))
       msg+=String(char(buffer[i]));              // Copy the buffer data to string for processing
     buffer[i]=NULL;                              // Empty the buffer
   }
-  
+  count = 0;
   if (msg.indexOf("CLIP") >= 0)                  // CallerID detected
   {
     String callerid = msg.substring(msg.indexOf("\"")+1,msg.length());
     callerid = callerid.substring(0,callerid.indexOf("\""));
     if ((ShowMessages) || (Debug))
     {
-      Serial.print("- CallerID: ");
+      Serial.print("- RING! Call from CallerID: ");
       Serial.println(callerid);
     }
     if (callerid==MyPhoneNumber)                  // It's me calling. Send SMS with information.
     {
-      TurnOnOffLEDs(true);      
+      TurnOnLEDs(true);      
       if ((ShowMessages) || (Debug))
       {
         Serial.println("- It's me calling!");
@@ -565,18 +575,18 @@ void clearBufferArray()
       SendSMSMessage();
       ShowSerialData();
     }
-    msg=String("");
+    msg="";
   }
 
   if (msg.indexOf("RING") >= 0)                  // RING detected
   {
     if ((ShowMessages) || (Debug))
       Serial.println("- RING! Someone is calling!");
-    TurnOnOffLEDs(true);
+    TurnOnLEDs(true);
   }
   
   if (msg.length()>100)                          // Keep process input buffer < X chars
-    msg=String("");
+    msg="";
 }
 
 
@@ -588,41 +598,44 @@ void clearBufferArray()
 
 boolean HasResponded(String checkForString)
 {
-  msg=String("");
+  msg="";
   if (Serial1.available())              
   {
     while(Serial1.available())          
     {
       buffer[count++]=Serial1.read();     
-      if (count == MaxBufferSize)
+      if (count >= MaxBufferSize)
         break;
     }
     if (Debug)
-      Serial.write(buffer,count);            
-    for (uint8_t i=0; i<count; i++)
+      Serial.write(buffer,count);       
+    for (int i=0; i<=count; i++)
     { 
       if ((buffer[i] != 10) && (buffer[i]!=13) && (buffer[i]!=32) && (buffer[i]!=0) && (buffer[i]!=26))
+      {
         msg+=String(char(buffer[i]));
+      }
       buffer[i]=NULL;
     }
-  
+    count = 0;   
  // checks for messages  
     if (msg.indexOf(checkForString) >= 0)  
     {
-      msg=String("");
+      msg="";
       return true;
     }
     else
     {
-      msg=String("");
+      msg="";
       return false;
     }
   }
+  // if we are here, we have a problem? to check it in the near future...
+  msg="";
   return false;
-  msg=String("");
 }
 
-void TurnOnOffLEDs(boolean turnOn)
+void TurnOnLEDs(boolean turnOn)
 {
   if (turnOn)
   {
