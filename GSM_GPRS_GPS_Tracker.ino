@@ -10,37 +10,53 @@
    GGGGGG   PP        SSSSS   //          TTTT    RRRR      AAAA A   CCCCC   KK  KK   EEEEE   RRRR
 
 
+  GPS Tracker (over GPRS)
+  Version 2.01 (alpha)
+  (c)2013, Antonis Maglaras
+  
+  For use with Arduino Leonardo, GSM Shield & Serial NMEA GPS (Fastrax UP501)
+  
+  Libraries:
+  GSM Library: TDG (ALPHA_TiDiGino_IDE100_v100.zip) -- http://www.gsmlib.org/download.html
+  GPS Library: TinyGPS -- http://arduiniana.org/libraries/tinygps/
+  
 */
 
 
 
-//#define SHOWMEMORY                       // Uncomment thins for showing free memory every 3 seconds on console
-
 #ifdef SHOWMEMORY
   #include <MemoryFree.h>  
 #endif
-
+#include "SIM900.h"
 #include <SoftwareSerial.h>
+#include "inetGSM.h"
+#include "sms.h"
+#include "call.h"
 #include <TinyGPS.h>
 
+InetGSM inet;
+CallGSM call;
+SMSGSM sms;
 TinyGPS gps;
+
 SoftwareSerial gpsserial(11, 12);                                      // Software Serial for GPS on pins 11 & 12
 static void gpsdump(TinyGPS &gps);           
 static bool feedgps();
-#define MaxBufferSize 64                                               // Buffer size
-unsigned char buffer[MaxBufferSize];                                   // Buffer array for data received from GSM modem
-int count=0;                                                           // Counter for buffer array 
-String msg = "";                                                       // Buffer for processing incoming data from GSM
 int currentSats=0,currentAlt=0,currentSpeed=0,currentCourse=0;         // Keep the current & previous location, speed, stats etc.
 float currentLat=0.0,currentLon=0.0,previousLat=1.0,previousLon=1.0;   // --//--
-int Times;  
-float currentTemp=0.0,SumTemp=0.0;
 char currentTime[18];                                                  // Decoded time from GPS
-long UpdateMillis, StartMillis;         
+boolean Bypass = true;
+char msg[50];
+int numdata;
+char inSerial[50];
+int i=0;
+boolean started=false;
+int Times; 
+float currentTemp=0.0,SumTemp=0.0;
+long GPSMillis, GPRSMillis;
 #ifdef SHOWMEMORY
   long MemoryMillis;
 #endif
-
 
 
 #define SoftPowerPin       2                                           // GSM Shield Soft-Power-on Pin
@@ -49,72 +65,96 @@ long UpdateMillis, StartMillis;
 #define GREENLed           9                                           // GREEN LED Pin
 #define YELLOWLed         10                                           // YELLOW LED Pin
 #define LM35Pin           A3                                           // LM35 Temperature Sensor Pin
+#define WHITELed          A1                                           // WHITE LED Pin
+#define PulseInPin        A2                                           // Pulse In from GPS
 
-#define MyPhoneNumber     "+30XXXXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
-#define APN               "XXXXXXXXXXXXXXXXXXXX"                       // APN.
-#define URL               "http://XXX.XXXXX.XX"                        // URL for sending the data over GPRS.
+#define MyPhoneNumber     "+3069XXXXXXXX"                              // My phone number. Used for SMS, CLID etc.
+#define APN               "internet.vodafone.gr"                       // APN.
+#define APNUser           "user"                                       // APN Username.
+#define APNPass           "pass"                                       // APN Password.
+#define HOSTNAME          "XXX.XXXXXX.XX"
 
-#define GPSOn             true                                         // GPS active or not.
-#define GPSTempDebug      false                                        // Display GPS & temperature data for debugging.
-#define ShowMessages      true                                         // Show messages from GSM.
-#define Debug             false                                        // Show modem response messages.
+#define EnableGPS         true                                         // GPS enabled/not
+#define GPSDebug          false                                        // Display GPS data for debugging.
+#define LM35Debug         false                                        // Display Temperature for debugging.
+#define Debug             true                                         // Debug Mode -- Outputs data...  
 
 
 
-//************************************************************************************************************************
-// Setup Procedure. 
-// Initialize values.
-//************************************************************************************************************************
 
-void setup()  
+
+void setup() 
 {
-  pinMode(REDLed, OUTPUT);
+  delay(5000);                                                    // Delay on start
+  pinMode(REDLed, OUTPUT);                                        // Pins Setup
   pinMode(GREENLed, OUTPUT);
   pinMode(YELLOWLed, OUTPUT);
+  pinMode(WHITELed, OUTPUT);
+  pinMode(PulseInPin, INPUT);
   pinMode(SoftPowerPin, OUTPUT);
   pinMode(ButtonPin, INPUT);
-  if ((ShowMessages) || (GPSTempDebug))
-    Serial.begin(19200);
-  for (int tmp=0; tmp<3; tmp++)
+  delay(500);
+  if (digitalRead(ButtonPin)==HIGH)                               // If button is missing, disable button for extra security
+    Bypass = true;
+  else
+    Bypass = false;
+  if (Debug)    
+    Serial.begin(9600);                                           // Serial Console Input/Output    
+  if (EnableGPS)                                                  // If GPS is enabled, setup GPS 
   {
-    delay(150);
-    TurnOnLEDs(true);
-    delay(150);
-    TurnOnLEDs(false);
-  }
-  if (ShowMessages)
-  {
-    Serial.println("+---------------------------+");
-    Serial.println("|   GPS GSM/GPRS Tracking   |");
-    Serial.println("| (c)2013, Antonis Maglaras |");
-    Serial.println("+---------------------------+");
-    Serial.println();
-    Serial.println("- Power On GSM...");
-  }
-  Serial1.begin(19200);
-  PowerOnOff();
-  if (GPSOn)
-  {
+    if (Debug)
+    {
+      Serial.println("+-----------------------------+");
+      Serial.println("| GPS Tracker (over GSM/GPRS) |");
+      Serial.println("|  (c)2013, Antonis Maglaras  |");
+      Serial.println("+-----------------------------+");
+      Serial.println();
+      Serial.print("-- GPS Setup...");
+    }
     gpsserial.begin(9600);
-    gpsserial.println("$PMTK301,2*2E");              // Enable DGPS = WAAS
+    gpsserial.println("$PMTK301,2*2E");                           // Enable DGPS = WAAS
     delay(1000);
-    gpsserial.println("$PMTK397,0.4*39");            // Do not count speed less than 0,4m/s (1.4km/h)
-    delay(1000);
+    gpsserial.println("$PMTK397,0.4*39");                         // Do not count speed less than 0,4m/s (1.4km/h)
+    delay(500);
+    if (Debug)
+      Serial.println("Done!");
   }
-  UpdateMillis=millis();
-  StartMillis=millis();
+  if (Debug)
+    Serial.print("-- Power on GSM...");
+  digitalWrite(SoftPowerPin,LOW);
+  delay(100);
+  digitalWrite(SoftPowerPin,HIGH);
+  delay(2000);
+  digitalWrite(SoftPowerPin,LOW);
+  if (Debug)
+    Serial.println("Done!");
+  started=false;
+  while (!started)
+  {
+    if (Debug)
+      Serial.print("-- GSM Setup...");   
+    if (gsm.begin(9600))                                            // Start GSM communications
+    {            
+      if (Debug)      
+        Serial.println("Done!");
+      started=true;  
+    }
+    else 
+    if (Debug)
+      Serial.println("Problem! Retrying...");
+  }
+  GPSMillis=millis();
+  GPRSMillis=millis();
 #ifdef SHOWMEMORY
   MemoryMillis=millis();
 #endif
-}
+};
 
 
-//************************************************************************************************************************
-// Loop Procedure. 
-// Main program.
-//************************************************************************************************************************
 
-void loop()
+
+
+void loop() 
 {
 #ifdef SHOWMEMORY
     if ((millis()-MemoryMillis)>3000)
@@ -126,47 +166,31 @@ void loop()
     }
 #endif
 
-  if ((millis()-UpdateMillis>90000) && (currentSats>=3) && (currentLat != 0.0) && (currentLon != 0.0))     
-  // Update every X time via GPRS (when valid gps lon/lat and position has not already sent)
-  {
-    TurnOnLEDs(true);
-    msg="";
-    UpdateOverGPRS();
-    TurnOnLEDs(false);
-    UpdateMillis=millis();
-  }
-  if (digitalRead(ButtonPin)==HIGH)     // On long button press, send sms
-  {
-    TurnOnLEDs(true);
-    delay(500);
-    if (digitalRead(ButtonPin)==HIGH)   // Check for long button press
-    { 
-      msg="";
-      SendSMSMessage();
-    }
-    TurnOnLEDs(false);    
-  }
-  if (GPSOn)
+//  if (call.CallStatus()==CALL_INCOM_VOICE)
+//  {
+//    digitalWrite(WHITELed, HIGH);
+//  }
+//  else
+//  {
+//    digitalWrite(WHITELed, LOW);
+//  }
+    
+  if (EnableGPS)                                                  // GPS data processing
   {
     bool newdata = false;
-    if (millis()-StartMillis<1000)
+    if (millis()-GPSMillis<1000)
     {
       if (feedgps())
         newdata=true;
       gpsdump(gps);
     }
-    StartMillis=millis();
+    GPSMillis=millis();
   }
- ShowSerialData();
- if (ShowMessages)
- {
-   if (Serial.available())               // if data are available on console
-     Serial1.write(Serial.read());       // send them to the Serial1 (GSM shield) // to pass commands
- }
-  GetTemperature();                      // Get temperature readings
-  if (Times>1000)                        // Every 1000 times, reset average readings
+  
+  GetTemperature();                                              // Get temperature readings
+  if (Times>1000)                                                // Every 1000 times, reset average readings
   {
-    if (GPSTempDebug)
+    if ((LM35Debug) && (Debug))
     {
       Serial.print(" - Temperature: ");
       Serial.println(currentTemp,1);
@@ -174,57 +198,71 @@ void loop()
     Times=0;
     SumTemp=0.0;
   }
+  
+  if ((millis()-GPRSMillis>90000) && (currentLat != previousLat) && (currentLon != previousLon))                // Upload position data via GPRS 
+  {
+    digitalWrite(YELLOWLed, HIGH);
+    UpdateOverGPRS();                                            
+    digitalWrite(YELLOWLed, LOW);
+    previousLat=currentLat;
+    previousLon=currentLon;
+    GPRSMillis=millis();
+  }
+
+  if (Debug)
+  {  
+    serialhwread();                                              // Read for new byte on serial hardware and write them on NewSoftSerial.
+    serialswread();                                              // Read for new byte on NewSoftSerial.
+  }
+};
+
+
+
+
+
+void serialhwread()
+{
+  i=0;
+  if (Serial.available() > 0){            
+    while (Serial.available() > 0) 
+    {
+      inSerial[i]=(Serial.read());
+//      delay(10);
+      i++;      
+    }
+    
+    inSerial[i]='\0';
+    if(!strcmp(inSerial,"/END")){
+      Serial.println("_");
+      inSerial[0]=0x1a;
+      inSerial[1]='\0';
+      gsm.SimpleWriteln(inSerial);
+    }
+    //Send a saved AT command using serial port.
+    if(!strcmp(inSerial,"TEST"))
+    {
+      Serial.println("SIGNAL QUALITY");
+      gsm.SimpleWriteln("AT+CSQ");
+    }
+    //Read last message saved.
+    if(!strcmp(inSerial,"MSG"))
+    {
+      Serial.println(msg);
+    }
+    else
+    {
+      Serial.println(inSerial);
+      gsm.SimpleWriteln(inSerial);
+    }    
+    inSerial[0]='\0';
+  }
 }
 
 
 
-//************************************************************************************************************************
-// PowerOnOff Procedure. 
-// Send a signal to the shield soft-power pin for turning on/off
-//************************************************************************************************************************
-
-void PowerOnOff()                      
+void serialswread()
 {
- digitalWrite(SoftPowerPin,LOW);
- delay(100);
- digitalWrite(SoftPowerPin,HIGH);
- delay(2000);
- digitalWrite(SoftPowerPin,LOW);
-}
-
-
-
-
-//************************************************************************************************************************
-// AnswerCall Procedure. 
-// Answers the current call.
-//************************************************************************************************************************
-
-void AnswerCall()
-{
-  msg="";  
-  Serial1.println("ATA");
-  delay(500);
-  ShowSerialData();
-  msg="";  
-}
-
-
-
-//************************************************************************************************************************
-// HangUpCall Procedure. 
-// Hungup the current active call.
-//************************************************************************************************************************
-
-void HangUpCall()
-{
-  msg="";
-  Serial1.println("+++");
-  delay(500);
-  Serial1.println("ATH");
-  delay(100);
-  ShowSerialData();
-  msg="";
+  gsm.SimpleRead();
 }
 
 
@@ -242,23 +280,24 @@ static void gpsdump(TinyGPS &gps)
   if (Sats<255)
   {
     if (Sats>=3)
-      digitalWrite(GREENLed, HIGH);
+      digitalWrite(GREENLed, HIGH);                              // Green LED On when valid GPS location
     else
-      digitalWrite(GREENLed, LOW);    
+    {
+      digitalWrite(GREENLed, LOW);                               // Green LED off when not valid GPS location
+      return;                                                    // Exit.
+    }
   }
   else
   {
-    digitalWrite(GREENLed, LOW);
-    digitalWrite(YELLOWLed, LOW);
-    return;
+    digitalWrite(GREENLed, LOW);                                 // Green LED off. No signal yet.
+    return;                                                      // Exit
   }
   float flat, flon;
   unsigned long age;
   int year;
   byte month, day, hour, minute, second, hundredths;
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
-  // DST Correction
-  // last sunday of march
+  // DST Correction -- last sunday of march
   int beginDSTDate=  (31 - (5* year /4 + 4) % 7);
   int beginDSTMonth=3;
   //last sunday of october
@@ -277,7 +316,7 @@ static void gpsdump(TinyGPS &gps)
   currentAlt=gps.f_altitude();
   currentSpeed=gps.f_speed_kmph();
   currentCourse=gps.f_course();
-  if (GPSTempDebug)
+  if ((GPSDebug) && (Debug))                                           // Show GPS data for debugging
   {
     Serial.print("- [GPS] Lat: ");
     Serial.print(currentLat,7);
@@ -293,6 +332,8 @@ static void gpsdump(TinyGPS &gps)
     Serial.println(currentSats);
   }
 }
+
+
 
 
 //************************************************************************************************************************
@@ -316,6 +357,7 @@ static bool feedgps()
 }
 
 
+
 //************************************************************************************************************************
 // GetTemperature Procedure. 
 // Read temperature (and filter the data).
@@ -329,315 +371,104 @@ void GetTemperature()
 }
 
 
-//************************************************************************************************************************
-// UpdateOverGPRS Procedure. 
-// Check for GPRS access and send (http get) the data.
-//************************************************************************************************************************
+
+
+
+
+
+
+
+
 
 void UpdateOverGPRS()
 {
-  msg="";
-  if ((previousLat==currentLat) && (previousLon==currentLon))
-    return;
-  if (ShowMessages)
-    Serial.println("- Starting GPRS update..."); 
-  Serial1.print("AT+CGATT?");
-  Serial1.print("\r");
-  delay(1000);
-  if (HasResponded("CGATT:0"))               // GPRS is not active
+  if (currentSats>=3)
   {
-    if (ShowMessages)
-      Serial.println("- No GPRS access. Discarding...");
-    return;
-  }
-  ShowSerialData();
-  Serial1.print("AT+CSTT=\"");
-  Serial1.print(APN);
-  Serial1.print("\",\"\",\"\"");       // Setup the APN.
-  Serial1.print("\r");
-//  Serial1.write(0x1A);
-  delay(2000); 
-  ShowSerialData();
-  Serial1.print("AT+CIPSRIP=1");
-  Serial1.print("\r");
-  delay(2000);
-  ShowSerialData();
-  Serial1.print("AT+CIICR");  
-  Serial1.print("\r");
-  delay(2000);
-  ShowSerialData();
-  Serial1.print("AT+CIFSR");
-  Serial1.print("\r");
-//  Serial1.write(0x1A);
-  delay(2000); 
-  ShowSerialData();
-  Serial1.print("AT+CDNSCFG?");
-  Serial1.print("\r");
-  delay(2000);
-  ShowSerialData();
-  Serial1.print("AT+CIPHEAD=1");
-  Serial1.print("\r");
-  delay(2000);
-  ShowSerialData();
-  Serial1.print("AT+CIPSTATUS");
-  Serial1.print("\r");
-//  Serial1.write(0x1A);
-  delay(2000);
-  ShowSerialData();
-  Serial1.print("AT+CIPSTART=\"TCP\",\"");
-  Serial1.print(URL);
-  Serial1.println("\",\"80\"");
-//  Serial1.print("\r");
-//  Serial1.write(0x1A);
-  delay(2000);
-  ShowSerialData();
-  
-  
-  
-//  delay(5000);
-  
-  
-//  Serial1.print("AT+CIPSTATUS");
-//  Serial1.print("\r");
-//  Serial1.write(0x1A);
-//  delay(3000);
-//  ShowSerialData();
-  Serial1.print("AT+CIPSEND");
-  Serial1.print("\r\n");
-  delay(3000);
-  ShowSerialData();
-  Serial1.print("GET /track.php?lat=");
-  Serial1.print(currentLat,7);
-  Serial1.print("&lon=");
-  Serial1.print(currentLon,7);
-  Serial1.print("&wra=");
-  Serial1.print(currentTime);
-  Serial1.print("&sats=");
-  Serial1.print(currentSats);
-  Serial1.print("&speed=");
-  Serial1.print(currentSpeed);
-  Serial1.print("&course=");
-  Serial1.print(currentCourse);
-  Serial1.print("&alt=");
-  Serial1.print(currentAlt);
-  Serial1.print("&temp=");
-  Serial1.print(currentTemp,1);
-  Serial1.print(" HTTP/1.1");
-  Serial1.println("");
-  Serial1.println("");
-  Serial1.write(0x1A);
-  delay(5000);
-  ShowSerialData();
-  Serial1.print("AT+CIPSHUT");
-  Serial1.print("\r");
-  delay(1000);
-  ShowSerialData();
-  previousLat=currentLat;
-  previousLon=currentLon;
-  if (ShowMessages)
-    Serial.println("- Done!");
-  msg="";
-}
-
-
-//************************************************************************************************************************
-// SendSMSMessage Procedure. 
-// Send SMS with location details.
-//************************************************************************************************************************
-
-void SendSMSMessage()
-{
-  msg="";
-  if (ShowMessages)
-    Serial.println("- Sending SMS...");
-  Serial1.println("AT+CREG?");
-  delay(1000);
-  if (!HasResponded("0,1"))
-  {
-    if (ShowMessages)
-      Serial.println("- No network registration. Discarding...");
-    return;
-  }
-  Serial1.print("AT+CMGF=1");
-  Serial1.print("\r");
-  delay(1000);
-  Serial1.print("AT+CSMP=17,167,0,241");
-  Serial1.print("\r");
-  delay(1000);
-  Serial1.print("AT+CMGS=\"");
-  Serial1.print(MyPhoneNumber);
-  Serial1.print("\"\r");
-  delay(1000);
-  Serial1.print("Lon: ");
-  Serial1.print(currentLon,7);
-  Serial1.print("\r\n");
-  Serial1.print("Lat: ");
-  Serial1.print(currentLat,7);
-  Serial1.print("\r\n");
-  Serial1.print("Speed: ");
-  Serial1.print(currentSpeed);
-  Serial1.print("km/h\r\n");
-  Serial1.print("Course: ");
-  Serial1.print(currentCourse);
-  Serial1.print("\r\n");
-  Serial1.print("Altitude: ");
-  Serial1.print(currentAlt);
-  Serial1.print("m\r\n");
-  Serial1.print("Satellites: ");
-  Serial1.print(currentSats);
-  Serial1.print("\r\n");
-  Serial1.print("Temp: ");
-  Serial1.print(currentTemp,1);
-  Serial1.print("C\r\n");  
-  Serial1.print("Link: http://maps.google.com/?q=");
-  Serial1.print(currentLat,7);
-  Serial1.print(",");
-  Serial1.print(currentLon,7);
-  Serial1.print("\r\n");
-  Serial1.println();
-  Serial1.write(0x1A);        // Send CTRL-Z
-  ShowSerialData(); 
-  if (ShowMessages)
-    Serial.println("- Done!");
-  msg="";  
-}
-
-
-//************************************************************************************************************************
-// ShowSerialData Procedure. 
-// Display data received from GSM modem.
-//************************************************************************************************************************
-
-void ShowSerialData()
-{
- if (Serial1.available())              // if we have data from GSM modem
- {
-   while(Serial1.available())          
-   {
-     buffer[count++]=Serial1.read();   // Read the data and put them on buffer
-     if (count == MaxBufferSize)
-       break;
-   }
-   if (Debug)
-     Serial.write(buffer,count);       // When data transmission ends, write buffer to console for debugging.
-   clearBufferArray();                 // Call clearBufferArray function to clear the data and make some process.                       
-   count = 0;
-   msg = "";
- }
-} 
-
-
-//************************************************************************************************************************
-// ClearBufferArray Procedure. 
-// Clear data from buffer and process the output.
-//************************************************************************************************************************
-
-void clearBufferArray() 
-{
-  for (int i=0; i<=count; i++)
-  { 
-    if ((buffer[i] != 10) && (buffer[i]!=13) && (buffer[i]!=32) && (buffer[i]!=0) && (buffer[i]!=26))
-      msg+=String(char(buffer[i]));              // Copy the buffer data to string for processing
-    buffer[i]=NULL;                              // Empty the buffer
-  }
-  count = 0;
-  if (msg.indexOf("CLIP") >= 0)                  // CallerID detected
-  {
-    TurnOnLEDs(true);          
-    String callerid = msg.substring(msg.indexOf("\"")+1,msg.length());
-    callerid = callerid.substring(0,callerid.indexOf("\""));
-    if (ShowMessages)
+    if(started)
     {
-      if (callerid.length()==13)
-        Serial.print("- RING! Call from CallerID: ");
-      else
-        Serial.print("- RING! Call from (unvalid?) CallerID: ");
-      Serial.println(callerid);
-    }
-    if (callerid==MyPhoneNumber)                  // It's me calling. Send SMS with information.
-    {
-      if (ShowMessages)
+      if (Debug)
+        Serial.print("-- Starting GPRS Update...");
+      String url="/track.php?lat=";
+      url+=printFloat(currentLat,7);
+      url+="&lon=";
+      url+=printFloat(currentLon,7);
+      url+="&wra=";
+      url+=currentTime;
+      url+="&sats=";
+      url+=currentSats;
+      url+="&speed=";
+      url+=currentSpeed;
+      url+="&course=";
+      url+=currentCourse;
+      url+="&alt=";
+      url+=currentAlt;
+      url+="&temp=";
+      url+=printFloat(currentTemp,1);      
+      
+      //GPRS attach, put in order APN, username and password.
+      //If no needed auth let them blank.
+      if (inet.attachGPRS(APN, APNUser, APNPass))
       {
-        Serial.println("- It's me calling!");
-        Serial.println("- Hanging Up Call");
+        if (Debug)
+          Serial.println("[APN Set]");
       }
-      HangUpCall();
+      else 
+      {
+        if (Debug)
+          Serial.println("Error! [APN Problem]");
+      }
+      delay(1000);
+      
+      //Read IP address.
+      gsm.SimpleWriteln("AT+CIFSR");
       delay(5000);
-      SendSMSMessage();
-      ShowSerialData();
+      //Read until serial buffer is empty.
+      gsm.WhileSimpleRead();
+      if (Debug)
+        Serial.print("-- Sending data...");
+      //TCP Client GET, send a GET request to the server and
+      //save the reply.
+      char tmp[url.length()+1];
+      url.toCharArray(tmp,url.length()+1);
+      numdata=inet.httpGET(HOSTNAME, 80, tmp, msg, 50);
+//      //Print the results.
+      Serial.println("nNumber of data received:");
+      Serial.println(numdata);  
+      Serial.println("\nData received:"); 
+      Serial.println(msg); 
+      if (Debug)
+        Serial.println("Done!");
     }
   }
+}
 
-//  if (msg.indexOf("RING") >= 0)                  // RING detected
-//  {
-//    msg="";
-//    if (ShowMessages)
-//      Serial.println("- RING! Someone is calling!");
-//    TurnOnLEDs(true);
-//  }
+	
+
+
+
+String printFloat(double number, int digits)
+{
+  String out="";
+  // Round correctly so that print(1.999, 2) prints as "2.00"
+  double rounding = 0.5;
+  for (uint8_t i=0; i<digits; ++i)
+    rounding /= 10.0;
   
-  if (msg.length()>100)                          // Keep process input buffer < X chars
-    msg="";
-//  count = 0;
-}
+  number += rounding;
 
+  // Extract the integer part of the number and print it
+  unsigned long int_part = (unsigned long)number;
+  double remainder = number - (double)int_part;
+  out+=int_part;
+  out+=".";
 
-
-//************************************************************************************************************************
-// HasResponded Procedure. 
-// Check for the GSM modem response.
-//************************************************************************************************************************
-
-boolean HasResponded(String checkForString)
-{
-  msg="";
-  if (Serial1.available())              
+  // Extract digits from the remainder one at a time
+  while (digits-- > 0)
   {
-    while(Serial1.available())          
-    {
-      buffer[count++]=Serial1.read();     
-      if (count >= MaxBufferSize)
-        break;
-    }
-    if (Debug)
-      Serial.write(buffer,count);       
-    for (int i=0; i<=count; i++)
-    { 
-      if ((buffer[i] != 10) && (buffer[i]!=13) && (buffer[i]!=32) && (buffer[i]!=0) && (buffer[i]!=26))
-      {
-        msg+=String(char(buffer[i]));
-      }
-      buffer[i]=NULL;
-    }
- // checks for messages  
-    if (msg.indexOf(checkForString) >= 0)  
-    {
-      msg="";
-      return true;
-    }
-    else
-    {
-      msg="";
-      return false;
-    }
-  }
-  // if we are here, we have a problem? to check it in the near future...
-  msg="";
-  return false;
-}
-
-void TurnOnLEDs(boolean turnOn)
-{
-  if (turnOn)
-  {
-    digitalWrite(REDLed, HIGH);
-    digitalWrite(GREENLed, HIGH);
-    digitalWrite(YELLOWLed, HIGH);    
-  }
-  else
-  {
-    digitalWrite(REDLed, LOW);
-    digitalWrite(GREENLed, LOW);
-    digitalWrite(YELLOWLed, LOW);    
-  }
+    remainder *= 10.0;
+    int toPrint = int(remainder);
+    out+=toPrint;
+    remainder -= toPrint; 
+  } 
+  return out;
 }
